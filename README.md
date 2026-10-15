@@ -51,7 +51,11 @@ Ein bloßer **Repost**-Knopf ohne aktiven Zustand wird nicht angeklickt. Nach de
 
 ## Prüfung
 
-JavaScript-Syntax und zwölf Verhaltenstests mit einem nachgebauten DOM wurden geprüft. Die Tests decken getrennte Modi, Speicherzustände, Repost-Entfernung, das Vermeiden neuer Reposts, Stopp und die Navigation zu allen drei Profil-Tabs ab.
+JavaScript-Syntax und 19 Verhaltenstests mit einem nachgebauten DOM wurden geprüft. Die Tests decken getrennte Modi, Speicherzustände, Repost-Entfernung, das Vermeiden neuer Reposts, Stopp, die Navigation zu allen drei Profil-Tabs sowie verschiedene gespeicherte Beitragslisten ab.
+
+### Version 1.6.1
+
+Die Beitragslisten-Erkennung unterstützt auch normale Profilkacheln ohne spezielle Favoriten-Kennung und sichtbare Tab-Inhalte ohne `aria-controls`. Versteckte Kacheln und Sammlungsordner werden ausgeschlossen. Bereits bearbeitete Links werden übersprungen; Kacheln unterhalb des sichtbaren Bereichs können vor dem Öffnen angescrollt werden. Gibt es innerhalb des gespeicherten Tab-Inhalts einen eindeutig beschrifteten Untertab **Videos/Beiträge**, wird dieser zuerst geöffnet.
 
 ```sh
 node --check tiktok-entliken.user.js

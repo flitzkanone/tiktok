@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TikTok Likes, Gespeicherte und Reposts entfernen - by flitzkanone
 // @namespace    local.tiktok.controls
-// @version      1.6.0
+// @version      1.6.1
 // @description  Likes, gespeicherte Beiträge oder eigene Reposts entfernen und zum nächsten Beitrag wechseln.
 // @match        https://www.tiktok.com/*
 // @grant        none
@@ -163,8 +163,71 @@
 
   function semantic(root, pattern) {
     return [...root.querySelectorAll(
-      'button,a,[role="button"],[role="menuitem"],[data-e2e],[aria-label]'
+      'button,a,[role="button"],[role="tab"],[role="menuitem"],[data-e2e],[aria-label]'
     )].find(el => visible(el) && matchesText(el, pattern));
+  }
+
+  function hasLayout(el) {
+    if (!el || !el.isConnected) return false;
+    const r = el.getBoundingClientRect();
+    if (r.width <= 0 || r.height <= 0) return false;
+    for (let node = el; node && node !== document; node = node.parentElement) {
+      const style = getComputedStyle(node);
+      if (node.getAttribute('aria-hidden') === 'true' ||
+          node.hasAttribute('hidden') || style.display === 'none' ||
+          style.visibility === 'hidden') return false;
+    }
+    return true;
+  }
+
+  function collectionPanel(tab) {
+    const id = tab.getAttribute('aria-controls');
+    const controlled = id && document.getElementById(id);
+    if (controlled && hasLayout(controlled)) return controlled;
+    const panels = [...document.querySelectorAll('[role="tabpanel"]')]
+      .filter(hasLayout);
+    const tabId = tab.getAttribute('id');
+    const labelled = tabId && panels.find(panel =>
+      (panel.getAttribute('aria-labelledby') || '').split(/\s+/).includes(tabId)
+    );
+    if (labelled) return labelled;
+    return panels.length === 1 ? panels[0] : null;
+  }
+
+  function collectionEntry(config, tab, seen) {
+    // Einige Layouts verwenden für gespeicherte Beiträge dieselben Kacheln
+    // wie für Uploads. Nur nach dem Klick auf den gewünschten Tab suchen.
+    if (tab.getAttribute('aria-selected') === 'false') return null;
+    const specific = [...document.querySelectorAll(config.items)].filter(hasLayout);
+    const panel = collectionPanel(tab);
+    const grids = [...document.querySelectorAll(
+      '[data-e2e="user-post-item-list"],[data-e2e="user-post-item"],'+
+      '[data-e2e="user-favorite-item-list"],[data-e2e="user-collect-item-list"]'
+    )].filter(hasLayout);
+    const roots = [...specific, ...(panel ? [panel] : []), ...grids];
+
+    for (const root of roots) {
+      const links = [
+        ...(root.matches('a[href]') ? [root] : []),
+        ...root.querySelectorAll('a[href]')
+      ];
+      for (const link of links) {
+        if (!hasLayout(link)) continue;
+        let url;
+        try { url = new URL(link.href || link.getAttribute('href'), location.href); }
+        catch { continue; }
+        if (url.origin !== location.origin ||
+            !/^\/@[^/]+\/(video|photo)\/\d+\/?$/.test(url.pathname)) continue;
+        if (!seen.has(url.origin + url.pathname)) return link;
+      }
+    }
+
+    // Manche ausdrücklich bezeichneten Kacheln sind selbst klickbar
+    // und besitzen keinen Link. Keine Sammlungsordner blind öffnen.
+    return specific.find(item => !item.querySelector('a[href]') &&
+      (item.matches('button,[role="button"]') ||
+       item.querySelector('video,img'))
+    ) || null;
   }
 
   const removeRepostText = /^(remove|delete|undo) repost$|^repost (entfernen|löschen|zurücknehmen|rückgängig machen)$|^erneute veröffentlichung (entfernen|löschen|rückgängig machen)$/i;
@@ -583,53 +646,29 @@
       await sleep(2000);
       check();
 
+      // Optionaler Untertab innerhalb der gespeicherten Ansicht.
+      if (mode === 'saved') {
+        const panel = collectionPanel(likedTab);
+        const videosTab = panel && semantic(panel, /^(videos|beiträge|posts)$/i);
+        if (videosTab && videosTab.getAttribute('aria-selected') !== 'true') {
+          click(videosTab);
+          await sleep(1000);
+          check();
+        }
+      }
+
       get('status').textContent =
         'Öffne ersten Beitrag aus „' + config.tab + '“ …';
 
-      const firstPost = await waitFor(() => {
-        const items = [
-          ...document.querySelectorAll(
-            config.items
-          )
-        ];
-
-        const item = items.find(el => {
-          const r = el.getBoundingClientRect();
-          return r.width > 0 && r.height > 0;
-        });
-
-        if (item) {
-          return item.querySelector(
-            'a[href*="/video/"],a[href*="/photo/"]'
-          ) || item;
-        }
-
-        const selected = [
-          ...document.querySelectorAll(
-            '[role="tab"][aria-selected="true"]'
-          )
-        ].find(el =>
-          matchesText(el, config.tabText)
-        );
-
-        if (!selected) return null;
-
-        const panelId =
-          selected.getAttribute('aria-controls');
-
-        const tabPanel = panelId
-          ? document.getElementById(panelId)
-          : null;
-
-        return tabPanel && tabPanel.querySelector(
-          'a[href*="/video/"],a[href*="/photo/"]'
-        );
-      });
+      const firstPost = await waitFor(
+        () => collectionEntry(config, likedTab, seen), 12000
+      );
 
       if (!firstPost) {
         throw new Error(
-          'Keine Beiträge in „' + config.tab + '“ gefunden ' +
-          'oder Liste nicht erkannt.'
+          'Keine unbearbeiteten Beitragskacheln in „' + config.tab + '“ erkannt. ' +
+          (mode === 'saved' ? 'Falls Sammlungen angezeigt werden: Beiträge/Videos öffnen. ' : '') +
+          'Die Liste kann leer oder noch nicht aktualisiert sein.'
         );
       }
 

@@ -19,6 +19,7 @@ class Element {
   }
   appendChild(child) { child.parentElement = this; this.children.push(child); }
   getAttribute(name) { return this.attrs[name] ?? null; }
+  hasAttribute(name) { return Object.hasOwn(this.attrs, name); }
   getBoundingClientRect() { return { width: 300, height: 400, top: 100, bottom: 500, left: 100, right: 400 }; }
   matches(selector) {
     return selector.split(',').some(part => {
@@ -71,6 +72,7 @@ function setup(mode) {
     });
     return element;
   };
+  document.getElementById = id => document.querySelector('[id="' + id + '"]');
   let clock = 0;
   const window = {};
   window.top = window;
@@ -79,14 +81,14 @@ function setup(mode) {
     document, window, innerHeight: 900, innerWidth: 1200,
     location: { href: 'https://www.tiktok.com/@test/video/1', pathname: '/@test/video/1', origin: 'https://www.tiktok.com' },
     URL, Date: { now: () => clock },
-    getComputedStyle: el => ({ display: 'block', visibility: 'visible', fill: el.fill || 'none' }),
+    getComputedStyle: el => ({ display: el.display || 'block', visibility: 'visible', fill: el.fill || 'none' }),
     setTimeout: (callback, ms) => { clock += ms; queueMicrotask(callback); },
     KeyboardEvent: class { constructor(type, data) { this.type = type; Object.assign(this, data); } },
     MouseEvent: class { constructor(type, data) { this.type = type; Object.assign(this, data); } }
   };
   const source = fs.readFileSync(path.join(__dirname, '../tiktok-entliken.user.js'), 'utf8')
     .replace('    try {\n      // Gespeicherte', `    globalThis.session = {
-      removeSelected, getRepostState, openCollectionPost, config,
+      removeSelected, getRepostState, openCollectionPost, collectionEntry, collectionPanel, config,
       setPost: post => { context = () => post; },
       active: live
     };
@@ -222,4 +224,118 @@ test('Stopp verhindert eine weitere Repost-Aktion nach einer Wartezeit', async (
   const session = await env.start();
   await assert.rejects(() => session.removeSelected(env.post), /Abgebrochen/);
   assert.equal(share.clicks, 0);
+});
+
+for (const [mode, tabSelector, itemSelector] of [
+  ['likes', 'liked-tab', 'user-liked-item'],
+  ['saved', 'favorites-tab', 'user-favorite-item'],
+  ['reposts', 'repost-tab', 'user-repost-item']
+]) {
+  test(mode + ': Navigation über Für dich zum richtigen Profil-Tab', async () => {
+    const env = setup(mode);
+    const session = await env.start();
+    session.setPost(null);
+    const order = [];
+    const fyp = new Element('a', { 'data-e2e': 'nav-foryou' });
+    fyp.onclick = () => {
+      order.push('fyp'); env.sandbox.location.pathname = '/foryou';
+    };
+    const profile = new Element('a', { 'data-e2e': 'nav-profile' });
+    profile.onclick = () => {
+      order.push('profile'); env.sandbox.location.pathname = '/@test';
+    };
+    const tab = new Element('button', { 'data-e2e': tabSelector });
+    tab.onclick = () => order.push(mode);
+    const item = new Element('button', { 'data-e2e': itemSelector });
+    item.scrollIntoView = () => {};
+    item.onclick = () => {
+      order.push('post'); session.setPost(env.post);
+    };
+    for (const element of [fyp, profile, tab, item]) {
+      env.document.body.appendChild(element);
+    }
+    assert.equal(await session.openCollectionPost(), env.post);
+    assert.deepEqual(order, ['fyp', 'profile', mode, 'post']);
+    assert.equal(env.like.button.clicks, 0);
+    assert.equal(env.saved.button.clicks, 0);
+  });
+}
+
+test('Gespeichert: generische Profilkacheln ohne aria-controls werden erkannt', async () => {
+  const env = setup('saved');
+  const session = await env.start();
+  const tab = new Element('button', { 'aria-selected': 'true' });
+  const grid = new Element('div', { 'data-e2e': 'user-post-item-list' });
+  const link = new Element('a', { href: '/@test/video/123?lang=de' });
+  grid.appendChild(link);
+  env.document.body.appendChild(grid);
+  assert.equal(session.collectionEntry(session.config, tab, new Set()), link);
+});
+
+test('Gespeichert: Fotolink im sichtbaren Tabpanel ohne spezielle Kachelkennung', async () => {
+  const env = setup('saved');
+  const session = await env.start();
+  const tab = new Element('button', { id: 'saved-tab', 'aria-selected': 'true' });
+  const panel = new Element('div', { role: 'tabpanel', 'aria-labelledby': 'saved-tab' });
+  const link = new Element('a', { href: '/@test/photo/456' });
+  panel.appendChild(link);
+  env.document.body.appendChild(panel);
+  assert.equal(session.collectionEntry(session.config, tab, new Set()), link);
+});
+
+test('Versteckte Upload-Kacheln werden nicht geöffnet', async () => {
+  const env = setup('saved');
+  const session = await env.start();
+  const tab = new Element('button', { 'aria-selected': 'true' });
+  const grid = new Element('div', { 'data-e2e': 'user-post-item-list', hidden: '' });
+  grid.appendChild(new Element('a', { href: '/@test/video/123' }));
+  env.document.body.appendChild(grid);
+  assert.equal(session.collectionEntry(session.config, tab, new Set()), null);
+});
+
+test('Noch nicht aktiver Gespeichert-Tab öffnet keine Uploads', async () => {
+  const env = setup('saved');
+  const session = await env.start();
+  const tab = new Element('button', { 'aria-selected': 'false' });
+  const grid = new Element('div', { 'data-e2e': 'user-post-item-list' });
+  grid.appendChild(new Element('a', { href: '/@test/video/123' }));
+  env.document.body.appendChild(grid);
+  assert.equal(session.collectionEntry(session.config, tab, new Set()), null);
+});
+
+test('Bearbeitete erste Kachel wird zugunsten der nächsten übersprungen', async () => {
+  const env = setup('saved');
+  const session = await env.start();
+  const tab = new Element('button');
+  const grid = new Element('div', { 'data-e2e': 'user-post-item-list' });
+  const stale = new Element('a', { href: '/@test/video/123?lang=de' });
+  const next = new Element('a', { href: '/@test/photo/456' });
+  grid.appendChild(stale);
+  grid.appendChild(next);
+  env.document.body.appendChild(grid);
+  const seen = new Set(['https://www.tiktok.com/@test/video/123']);
+  assert.equal(session.collectionEntry(session.config, tab, seen), next);
+});
+
+test('Sammlungsordner und fremde Links sind keine Beitragskacheln', async () => {
+  const env = setup('saved');
+  const session = await env.start();
+  const tab = new Element('button');
+  const grid = new Element('div', { 'data-e2e': 'user-post-item-list' });
+  grid.appendChild(new Element('a', { href: '/@test/collection/123' }));
+  grid.appendChild(new Element('a', { href: 'https://example.com/@test/video/456' }));
+  env.document.body.appendChild(grid);
+  assert.equal(session.collectionEntry(session.config, tab, new Set()), null);
+});
+
+test('Beiträge unterhalb des sichtbaren Bereichs können angescrollt werden', async () => {
+  const env = setup('saved');
+  const session = await env.start();
+  const tab = new Element('button');
+  const grid = new Element('div', { 'data-e2e': 'user-post-item-list' });
+  const link = new Element('a', { href: '/@test/video/789' });
+  link.getBoundingClientRect = () => ({ width: 200, height: 300, top: 1500, bottom: 1800, left: 100, right: 300 });
+  grid.appendChild(link);
+  env.document.body.appendChild(grid);
+  assert.equal(session.collectionEntry(session.config, tab, new Set()), link);
 });

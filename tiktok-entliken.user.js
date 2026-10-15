@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         TikTok Entliken mit Profil-Aktualisierung - by flitzkanone
+// @name         TikTok Likes, Gespeicherte und Reposts entfernen - by flitzkanone
 // @namespace    local.tiktok.controls
-// @version      1.5.0
-// @description  Videos und Fotos entliken; bei Bedarf über Für dich die gelikten Beiträge erneut öffnen.
+// @version      1.6.0
+// @description  Likes, gespeicherte Beiträge oder eigene Reposts entfernen und zum nächsten Beitrag wechseln.
 // @match        https://www.tiktok.com/*
 // @grant        none
 // @run-at       document-idle
@@ -12,6 +12,27 @@
   'use strict';
 
   if (window.top !== window.self) return;
+
+  const modes = {
+    likes: {
+      title: 'Likes entfernen', tab: 'Geliked',
+      tabs: '[data-e2e="liked-tab"],[data-e2e="likes-tab"]',
+      tabText: /^(geliked|liked|gefällt mir|gelikte beiträge|liked videos)(?:\s+\d[\d.,KkMm]*)?$/i,
+      items: '[data-e2e="user-liked-item"]'
+    },
+    saved: {
+      title: 'Gespeicherte entfernen', tab: 'Gespeichert',
+      tabs: '[data-e2e="favorites-tab"],[data-e2e="favourites-tab"],[data-e2e="favorite-tab"],[data-e2e="collections-tab"]',
+      tabText: /^(gespeichert|gespeicherte|favoriten|favorites|favourites|saved)(?:\s+\d[\d.,KkMm]*)?$/i,
+      items: '[data-e2e="user-favorite-item"],[data-e2e="user-favorites-item"],[data-e2e="user-collect-item"]'
+    },
+    reposts: {
+      title: 'Reposts zurücknehmen', tab: 'Reposts',
+      tabs: '[data-e2e="repost-tab"],[data-e2e="reposts-tab"]',
+      tabText: /^(reposts?|erneut veröffentlicht|erneut veröffentlichte beiträge|reposted)(?:\s+\d[\d.,KkMm]*)?$/i,
+      items: '[data-e2e="user-repost-item"],[data-e2e="user-reposted-item"]'
+    }
+  };
 
   const host = document.createElement('div');
   host.style.cssText =
@@ -38,7 +59,7 @@
       input {
         width:55px;
       }
-      button,input {
+      button,input,select {
         font:inherit;
         padding:6px;
         border-radius:6px;
@@ -52,7 +73,14 @@
       }
     </style>
     <section>
-      <b>TikTok · Entliken</b>
+      <b>TikTok · Beiträge aufräumen</b>
+      <label>Aktion:
+        <select id="mode">
+          <option value="likes">Likes entfernen</option>
+          <option value="saved">Gespeicherte entfernen</option>
+          <option value="reposts">Reposts zurücknehmen</option>
+        </select>
+      </label>
       <label>
         Pause:
         <input
@@ -78,6 +106,7 @@
 
   let running = false;
   let generation = 0;
+  let closingShare = false;
 
   function visible(el) {
     if (!el || !el.isConnected) return false;
@@ -124,6 +153,87 @@
   function firstVisible(selector) {
     return [...document.querySelectorAll(selector)]
       .find(visible);
+  }
+
+  function matchesText(el, pattern) {
+    return ['aria-label', 'title'].some(name =>
+      pattern.test((el.getAttribute(name) || '').trim())
+    ) || pattern.test((el.textContent || '').replace(/\s+/g, ' ').trim());
+  }
+
+  function semantic(root, pattern) {
+    return [...root.querySelectorAll(
+      'button,a,[role="button"],[role="menuitem"],[data-e2e],[aria-label]'
+    )].find(el => visible(el) && matchesText(el, pattern));
+  }
+
+  const removeRepostText = /^(remove|delete|undo) repost$|^repost (entfernen|löschen|zurücknehmen|rückgängig machen)$|^erneute veröffentlichung (entfernen|löschen|rückgängig machen)$/i;
+  const addRepostText = /^(repost|erneut veröffentlichen|reposten)$/i;
+
+  function savedControl(post) {
+    const selectors = '[data-e2e="collect-icon"],[data-e2e="browse-collect-icon"],[data-e2e="favorite-icon"],[data-e2e="browse-favorite-icon"]';
+    const icon = [...post.root.querySelectorAll(selectors)].find(visible) ||
+      semantic(post.root, /^(remove from (favorites|favourites)|add to (favorites|favourites)|unsave|save|aus (den )?favoriten entfernen|zu (den )?favoriten hinzufügen|speichern|gespeichert|speicherung aufheben|aus gespeicherten entfernen)$/i);
+    if (!icon) throw new Error('Speichern-Knopf nicht erkannt.');
+    return { icon, button: icon.closest('button,[role="button"]') || icon };
+  }
+
+  function savedState(post) {
+    const control = savedControl(post);
+    const pressed = control.button.getAttribute('aria-pressed') ??
+      control.icon.getAttribute('aria-pressed');
+    if (pressed === 'true') return true;
+    if (pressed === 'false') return false;
+
+    const remove = /^(remove from (favorites|favourites)|unsave|aus (den )?favoriten entfernen|speicherung aufheben|aus gespeicherten entfernen)$/i;
+    const add = /^(add to (favorites|favourites)|save|zu (den )?favoriten hinzufügen|speichern)$/i;
+    if ([control.icon, control.button].some(el => matchesText(el, remove))) return true;
+    if ([control.icon, control.button].some(el => matchesText(el, add))) return false;
+
+    let inactive = false;
+    for (const el of control.icon.querySelectorAll('svg,svg path')) {
+      const color = getComputedStyle(el).fill.match(/^rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)/);
+      if (!color) continue;
+      const [r, g, b] = color.slice(1).map(Number);
+      if (r >= 230 && g >= 150 && g <= 230 && b < 110) return true;
+      if ((r === 255 && g === 255 && b === 255) ||
+          (r === 22 && g === 24 && b === 35)) inactive = true;
+    }
+    if (inactive) return false;
+    throw new Error('Gespeichert-Zustand unbekannt. Kein Klick ausgeführt.');
+  }
+
+  function repostState(post, includeMenu = false) {
+    const root = includeMenu ? document : post.root;
+    const remove = semantic(root, removeRepostText);
+    if (remove) return { active: true, control: remove };
+
+    const add = semantic(root, addRepostText);
+    if (add) {
+      const control = add.closest('button,[role="button"]') || add;
+      const pressed = control.getAttribute('aria-pressed') ?? add.getAttribute('aria-pressed');
+      if (pressed === 'true') return { active: true, control };
+      return { active: false, control };
+    }
+    return null;
+  }
+
+  function shareControl(post) {
+    return [...post.root.querySelectorAll(
+      '[data-e2e="share-icon"],[data-e2e="browse-share-icon"]'
+    )].find(visible) || semantic(post.root, /^(share|teilen|share video|beitrag teilen|video teilen)$/i);
+  }
+
+  function dismissShare() {
+    // Kein erneuter Klick auf den Repost-Schalter.
+    closingShare = true;
+    try {
+      document.dispatchEvent(new KeyboardEvent('keydown', {
+        key: 'Escape', code: 'Escape', bubbles: true
+      }));
+    } finally {
+      closingShare = false;
+    }
   }
 
   function area(el) {
@@ -190,6 +300,7 @@
         if (key) {
           return {
             media: item,
+            root: root,
             icon: icon,
             button: button,
             key: key
@@ -307,18 +418,21 @@
     get('status').textContent = message;
     get('start').disabled = false;
     get('delay').disabled = false;
+    get('mode').disabled = false;
   }
 
   get('stop').onclick = () => stop();
 
   document.addEventListener('keydown', event => {
-    if (event.key === 'Escape') stop();
+    if (event.key === 'Escape' && !closingShare) stop();
   });
 
   get('start').onclick = async () => {
     if (running) return;
 
     const delay = Number(get('delay').value);
+    const mode = get('mode').value;
+    const config = modes[mode];
 
     if (
       !Number.isFinite(delay) ||
@@ -341,6 +455,7 @@
 
     get('start').disabled = true;
     get('delay').disabled = true;
+    get('mode').disabled = true;
 
     function check() {
       if (!live()) {
@@ -364,7 +479,7 @@
       return null;
     }
 
-    async function openLikedPost() {
+    async function openCollectionPost() {
       check();
 
       // Gegebenenfalls die Beitragsansicht schließen.
@@ -449,21 +564,17 @@
       check();
 
       get('status').textContent =
-        'Öffne „Geliked“ …';
+        'Öffne „' + config.tab + '“ …';
 
       const likedTab = await waitFor(() =>
-        firstVisible(
-          '[data-e2e="liked-tab"],' +
-          '[data-e2e="likes-tab"]'
-        ) ||
-        findControl(
-          /^(geliked|liked|gefällt mir|gelikte beiträge|liked videos)(?:\s+\d[\d.,KkMm]*)?$/i
-        )
+        firstVisible(config.tabs) ||
+        [...document.querySelectorAll('[role="tab"],button,a,[data-e2e]')]
+          .find(el => visible(el) && matchesText(el, config.tabText))
       );
 
       if (!likedTab) {
         throw new Error(
-          'Tab „Geliked“ nicht gefunden.'
+          'Tab „' + config.tab + '“ nicht gefunden oder im Web nicht verfügbar.'
         );
       }
 
@@ -473,12 +584,12 @@
       check();
 
       get('status').textContent =
-        'Öffne ersten gelikten Beitrag …';
+        'Öffne ersten Beitrag aus „' + config.tab + '“ …';
 
       const firstPost = await waitFor(() => {
         const items = [
           ...document.querySelectorAll(
-            '[data-e2e="user-liked-item"]'
+            config.items
           )
         ];
 
@@ -498,7 +609,7 @@
             '[role="tab"][aria-selected="true"]'
           )
         ].find(el =>
-          /geliked|liked|gefällt mir/i.test(label(el))
+          matchesText(el, config.tabText)
         );
 
         if (!selected) return null;
@@ -517,7 +628,7 @@
 
       if (!firstPost) {
         throw new Error(
-          'Keine gelikten Beiträge gefunden ' +
+          'Keine Beiträge in „' + config.tab + '“ gefunden ' +
           'oder Liste nicht erkannt.'
         );
       }
@@ -549,56 +660,88 @@
       return post;
     }
 
+    function samePost(key) {
+      check();
+      const post = context();
+      if (!post || post.key !== key) {
+        throw new Error('Beitrag während der Aktion gewechselt.');
+      }
+      return post;
+    }
+
+    async function getRepostState(key) {
+      const post = samePost(key);
+      let state = repostState(post);
+      if (state) return state;
+      const share = shareControl(post);
+      if (!share) throw new Error('Teilen-Menü für Reposts nicht gefunden.');
+      share.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+      await sleep(350);
+      check();
+      state = repostState(samePost(key), true);
+      if (state) return state;
+      click(share);
+      state = await waitFor(() => repostState(samePost(key), true), 4000);
+      if (!state) throw new Error('Repost-Zustand unbekannt oder im Web nicht verfügbar.');
+      return state;
+    }
+
+    async function removeSelected(post) {
+      if (mode === 'reposts') {
+        const state = await getRepostState(post.key);
+        if (!state.active) { dismissShare(); return false; }
+        samePost(post.key);
+        // Nur explizit „Entfernen“ oder einen nachweislich aktiven Schalter klicken.
+        click(state.control);
+        await sleep(900);
+        check();
+        const after = await getRepostState(post.key);
+        if (after.active) throw new Error('Repost-Entfernung nicht bestätigt.');
+        dismissShare();
+        return true;
+      }
+
+      const read = mode === 'saved' ? savedState : liked;
+      if (!read(post)) return false;
+      if (mode === 'saved') click(savedControl(post).button);
+      else post.button.click();
+
+      const confirmed = await waitFor(() => {
+        const current = samePost(post.key);
+        return !read(current) ? current : null;
+      }, 4000);
+      if (!confirmed) throw new Error(config.title + ': Änderung nicht bestätigt.');
+      return true;
+    }
+
     try {
+      // Gespeicherte und Reposts ausschließlich aus der gewählten eigenen Liste öffnen.
+      let pending = mode === 'likes' ? null : await openCollectionPost();
       while (live()) {
         let post =
+          pending ||
           context() ||
           await waitFor(context, 4000);
+        pending = null;
 
         if (!post) {
-          post = await openLikedPost();
+          post = await openCollectionPost();
         }
 
         check();
 
         if (seen.has(post.key)) {
-          post = await openLikedPost();
+          post = await openCollectionPost();
         }
 
-        if (liked(post)) {
-          get('status').textContent =
-            'Like entfernen …';
-
-          post.button.click();
-
-          const confirmed = await waitFor(() => {
-            const current = context();
-
-            if (!current) return null;
-
-            if (current.key !== post.key) {
-              throw new Error(
-                'Beitrag während der Aktion gewechselt.'
-              );
-            }
-
-            return !liked(current)
-              ? current
-              : null;
-          }, 4000);
-
-          if (!confirmed) {
-            throw new Error(
-              'Entliken nicht bestätigt.'
-            );
-          }
-        }
+        get('status').textContent = config.title + ' …';
+        const removed = await removeSelected(post);
 
         seen.add(post.key);
-        count++;
+        if (removed) count++;
 
         get('status').textContent =
-          count + ' Beiträge bearbeitet. Warte …';
+          count + ' entfernt · ' + seen.size + ' geprüft. Warte …';
 
         await sleep(delay * 1000);
         check();
@@ -606,7 +749,7 @@
         const current = context();
 
         if (!current) {
-          await openLikedPost();
+          pending = await openCollectionPost();
           continue;
         }
 
@@ -614,10 +757,16 @@
           continue;
         }
 
-        if (liked(current)) {
+        if (mode !== 'reposts' && (mode === 'saved' ? savedState(current) : liked(current))) {
           throw new Error(
-            'TikTok hat den Like wiederhergestellt.'
+            'TikTok hat die Änderung zurückgesetzt.'
           );
+        }
+
+        if (mode === 'reposts') {
+          const state = await getRepostState(current.key);
+          if (state.active) throw new Error('TikTok hat den Repost wiederhergestellt.');
+          dismissShare();
         }
 
         next(current);
@@ -632,7 +781,7 @@
         }, 6000);
 
         if (!changed) {
-          await openLikedPost();
+          pending = await openCollectionPost();
         }
 
         await sleep(700);

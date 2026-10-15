@@ -1,37 +1,64 @@
-# TikTok Entliken
+# TikTok Beiträge aufräumen
 
-Tampermonkey-Script von **flitzkanone**, um Likes bei TikTok-Videos und Foto-Posts zu entfernen.
+Tampermonkey-Script von **flitzkanone** zum Entfernen von Likes, gespeicherten Beiträgen und eigenen Reposts. Unterstützt Videos und Foto-Posts, soweit TikToks Web-Oberfläche die benötigten Schaltflächen bereitstellt.
 
-## Installation
+## Installation und Update
 
 1. Tampermonkey im Browser installieren und aktivieren.
-2. [Script installieren](https://github.com/flitzkanone/tiktok/raw/refs/heads/main/tiktok-entliken.user.js) öffnen und die Installation in Tampermonkey bestätigen.
-3. Falls keine Installation angeboten wird: [vollständigen Code öffnen](./tiktok-entliken.user.js), kopieren und in Tampermonkey unter **Neues Script** den gesamten Editorinhalt damit ersetzen. Speichern.
+2. [Vollständiges Script installieren](https://github.com/flitzkanone/tiktok/raw/refs/heads/main/tiktok-entliken.user.js) öffnen und die Installation beziehungsweise Aktualisierung bestätigen.
+3. Falls keine Installation angeboten wird: [vollständigen Code öffnen](./tiktok-entliken.user.js), kopieren und in Tampermonkey unter **Neues Script** den gesamten Editorinhalt ersetzen. Speichern.
 4. TikTok neu laden. Nur eine Version dieses Scripts gleichzeitig aktivieren.
+
+## Modi
+
+| Auswahl | Änderung | Profil-Tab beim erneuten Öffnen |
+| --- | --- | --- |
+| Likes entfernen | Entfernt den eigenen Like | Geliked |
+| Gespeicherte entfernen | Entfernt die Speicherung als Favorit | Gespeichert / Favoriten |
+| Reposts zurücknehmen | Nimmt den eigenen Repost zurück | Reposts |
+
+Jeder Durchlauf führt ausschließlich die ausgewählte Aktion aus. Der Repost-Modus entfernt keine Likes oder Speicherungen; der Speichern-Modus verändert keine Reposts oder Likes. Beiträge selbst werden nicht gelöscht. Das Entfernen einer Speicherung ist kein Löschen einer Sammlungsstruktur oder einer heruntergeladenen Datei.
 
 ## Bedienung
 
-1. Bei TikTok anmelden und einen Beitrag oder das eigene Profil öffnen.
-2. Im eingeblendeten Bedienfeld die Pause einstellen: 3 bis 120 Sekunden, standardmäßig 5.
-3. **Start** drücken. **Stopp** oder **Esc** beendet den Ablauf.
+1. Bei TikTok anmelden.
+2. Im eingeblendeten Bedienfeld die Aktion auswählen.
+3. Pause zwischen 3 und 120 Sekunden einstellen; Standard ist 5 Sekunden.
+4. **Start** drücken. **Stopp** oder **Esc** beendet den Ablauf.
 
-Das Script entfernt vorhandene Likes und wechselt danach zum nächsten Beitrag. Beiträge ohne Like werden übersprungen. Videos und Foto-Posts werden anhand ihrer sichtbaren Medien und Like-Schaltflächen erkannt.
+Die Modi für Gespeicherte und Reposts öffnen zuerst die passende Liste im eigenen Profil. Der Likes-Modus kann auch beim aktuell geöffneten Beitrag beginnen.
 
-Wird kein Beitrag oder kein nächster Beitrag erkannt, versucht das Script diese Reihenfolge:
+Nach einer bestätigten Entfernung wartet das Script und wechselt zum nächsten Beitrag. Nicht aktive Likes, Speicherungen oder Reposts werden übersprungen. Fehlt der nächste Beitrag, versucht es:
 
-**Für dich → eigenes Profil → Geliked → erster Beitrag**
+**Für dich → eigenes Profil → ausgewählter Tab → erster Beitrag**
 
-Der Wechsel soll die Liste neu aufbauen. Es findet kein vollständiges Neuladen der Seite statt. Zeigt TikTok weiterhin einen bereits bearbeiteten Beitrag, stoppt das Script.
+Dieser Wechsel baut die Profilansicht neu auf, ist aber kein vollständiges Neuladen. Bleibt die Liste veraltet und öffnet einen bereits bearbeiteten Beitrag, stoppt das Script.
+
+## Reposts
+
+Das Script sucht nach einer ausdrücklich beschrifteten Entfernung wie **Remove repost**, **Repost entfernen** oder **Repost zurücknehmen**. Falls nötig, öffnet es das Teilen-Menü. Ein als aktiv ausgewiesener Repost-Schalter kann ebenfalls zurückgeschaltet werden.
+
+Ein bloßer **Repost**-Knopf ohne aktiven Zustand wird nicht angeklickt. Nach der Entfernung muss ein inaktiver Zustand erkennbar sein; andernfalls wird der Durchlauf gestoppt. Bietet TikToks Website die Repost-Aktion oder den Profil-Tab nicht an, kann das Script diese Funktion nicht ausführen.
 
 ## Grenzen und Fehlermeldungen
 
-- TikToks Oberfläche, Sprache und Layout können die Erkennung beeinflussen. Die Navigation berücksichtigt deutsche und englische Beschriftungen.
-- Die Like-Erkennung nutzt zugängliche Zustandsangaben oder die Herzfarbe. Ist der Zustand unbekannt, wird gestoppt.
-- „Keine gelikten Beiträge gefunden oder Liste nicht erkannt“ kann eine leere Liste oder eine nicht unterstützte Oberfläche bedeuten.
-- Wird ein Like zurückgesetzt oder das Entliken nicht bestätigt, stoppt das Script.
-- Der Tab muss geöffnet bleiben. Ein vollständiges Neuladen oder Schließen beendet die Ausführung; danach erneut **Start** drücken.
+- Die Erkennung berücksichtigt deutsche und englische Beschriftungen sowie ausgewählte DOM-Merkmale. Andere Layouts können Anpassungen erfordern.
+- Like- und Speicherzustände werden über Zustandsattribute, Beschriftungen oder bekannte Herz-/Lesezeichenfarben erkannt. Bei unbekanntem Zustand wird gestoppt.
+- Eine verschwundene Schaltfläche allein gilt nicht als bestätigte Entfernung.
+- Eine leere Liste und eine nicht unterstützte Listenansicht können dieselbe Fehlermeldung auslösen.
+- Ein vollständiges Neuladen oder Schließen der Seite beendet die Ausführung. Danach erneut **Start** drücken.
 - Hintergrund-Tabs können vom Browser verlangsamt werden.
-- Die JavaScript-Syntax wurde geprüft. Ein vollständiger Live-Test auf TikTok wurde nicht durchgeführt; insbesondere die Aktualisierung der Likes-Liste ist nicht bestätigt.
+
+## Prüfung
+
+JavaScript-Syntax und zwölf Verhaltenstests mit einem nachgebauten DOM wurden geprüft. Die Tests decken getrennte Modi, Speicherzustände, Repost-Entfernung, das Vermeiden neuer Reposts, Stopp und die Navigation zu allen drei Profil-Tabs ab.
+
+```sh
+node --check tiktok-entliken.user.js
+node --test tests/cleanup.test.cjs
+```
+
+Die Tests benötigen nur Node.js. Ein vollständiger Live-Test mit einem TikTok-Konto wurde nicht durchgeführt. Die konkrete Web-Oberfläche und die Aktualisierung der Profil-Listen sind deshalb noch nicht bestätigt.
 
 ## Datei
 

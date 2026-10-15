@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TikTok Likes, Gespeicherte und Reposts entfernen - by flitzkanone
 // @namespace    local.tiktok.controls
-// @version      1.6.1
+// @version      1.6.2
 // @description  Likes, gespeicherte Beiträge oder eigene Reposts entfernen und zum nächsten Beitrag wechseln.
 // @match        https://www.tiktok.com/*
 // @grant        none
@@ -194,7 +194,51 @@
     return panels.length === 1 ? panels[0] : null;
   }
 
-  function collectionEntry(config, tab, seen) {
+  function previewKey(element) {
+    const image = element.matches('img') ? element : element.querySelector('img');
+    if (!image) return null;
+    try {
+      const url = new URL(image.currentSrc || image.getAttribute('src'), location.href);
+      return url.origin + url.pathname;
+    } catch { return null; }
+  }
+
+  function savedPreview(panel, seen, seenPreviews) {
+    // Fallback für TikTok-ImageX-Kacheln ohne Link oder data-e2e-Kennung.
+    // Nur in der zuvor geöffneten Gespeichert-Ansicht auf einer Profilseite.
+    if (!/^\/@[^/]+\/?$/.test(location.pathname)) return null;
+    const root = panel || document.querySelector(
+      'main,[role="main"],[data-e2e="user-page"]'
+    ) || document;
+    for (const image of root.querySelectorAll('img')) {
+      if (image.closest('nav,aside,header,footer,[role="navigation"]')) continue;
+      const alt = image.getAttribute('alt') || '';
+      if (!/erstellt von|created by|original sound|mit der musik|with (?:the )?(?:music|sound)/i.test(alt)) continue;
+      let url;
+      try { url = new URL(image.currentSrc || image.getAttribute('src'), location.href); }
+      catch { continue; }
+      if (!/(^|\.)tiktokcdn(?:-[a-z0-9]+)?\.com$/i.test(url.hostname)) continue;
+      const style = getComputedStyle(image);
+      if (style.display === 'none' || style.visibility === 'hidden' ||
+          image.hasAttribute('hidden') || image.getAttribute('aria-hidden') === 'true') continue;
+      const target = hasLayout(image) ? image : image.parentElement;
+      if (!target || target === document.body || !hasLayout(target)) continue;
+      const r = target.getBoundingClientRect();
+      if (r.width < 100 || r.height < 100) continue;
+      if (seenPreviews.has(url.origin + url.pathname)) continue;
+      const link = image.closest('a[href]');
+      if (link) {
+        try {
+          const postUrl = new URL(link.href || link.getAttribute('href'), location.href);
+          if (seen.has(postUrl.origin + postUrl.pathname)) continue;
+        } catch { continue; }
+      }
+      return target;
+    }
+    return null;
+  }
+
+  function collectionEntry(config, tab, seen, seenPreviews = new Set()) {
     // Einige Layouts verwenden für gespeicherte Beiträge dieselben Kacheln
     // wie für Uploads. Nur nach dem Klick auf den gewünschten Tab suchen.
     if (tab.getAttribute('aria-selected') === 'false') return null;
@@ -224,10 +268,13 @@
 
     // Manche ausdrücklich bezeichneten Kacheln sind selbst klickbar
     // und besitzen keinen Link. Keine Sammlungsordner blind öffnen.
-    return specific.find(item => !item.querySelector('a[href]') &&
+    const item = specific.find(item => !item.querySelector('a[href]') &&
+      !seenPreviews.has(previewKey(item)) &&
       (item.matches('button,[role="button"]') ||
        item.querySelector('video,img'))
     ) || null;
+    if (item) return item;
+    return config === modes.saved ? savedPreview(panel, seen, seenPreviews) : null;
   }
 
   const removeRepostText = /^(remove|delete|undo) repost$|^repost (entfernen|löschen|zurücknehmen|rückgängig machen)$|^erneute veröffentlichung (entfernen|löschen|rückgängig machen)$/i;
@@ -514,6 +561,7 @@
       running && generation === token;
 
     const seen = new Set();
+    const seenPreviews = new Set();
     let count = 0;
 
     get('start').disabled = true;
@@ -661,7 +709,7 @@
         'Öffne ersten Beitrag aus „' + config.tab + '“ …';
 
       const firstPost = await waitFor(
-        () => collectionEntry(config, likedTab, seen), 12000
+        () => collectionEntry(config, likedTab, seen, seenPreviews), 12000
       );
 
       if (!firstPost) {
@@ -679,6 +727,7 @@
       await sleep(300);
       check();
 
+      const openedPreviewKey = previewKey(firstPost);
       click(firstPost);
 
       const post = await waitFor(context);
@@ -688,6 +737,8 @@
           'Erster Beitrag konnte nicht geöffnet werden.'
         );
       }
+
+      if (openedPreviewKey) seenPreviews.add(openedPreviewKey);
 
       if (seen.has(post.key)) {
         throw new Error(

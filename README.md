@@ -51,7 +51,11 @@ Ein bloßer **Repost**-Knopf ohne aktiven Zustand wird nicht angeklickt. Nach de
 
 ## Prüfung
 
-JavaScript-Syntax und 19 Verhaltenstests mit einem nachgebauten DOM wurden geprüft. Die Tests decken getrennte Modi, Speicherzustände, Repost-Entfernung, das Vermeiden neuer Reposts, Stopp, die Navigation zu allen drei Profil-Tabs sowie verschiedene gespeicherte Beitragslisten ab.
+JavaScript-Syntax und 25 Verhaltenstests mit einem nachgebauten DOM wurden geprüft. Die Tests decken getrennte Modi, Speicherzustände, Repost-Entfernung, das Vermeiden neuer Reposts, Stopp, die Navigation zu allen drei Profil-Tabs sowie verschiedene gespeicherte Beitragslisten ab.
+
+### Version 1.6.2
+
+Für Gespeichert gibt es zusätzlich eine Erkennung von TikTok-CDN-Vorschaubildern mit einer Beitragsbeschreibung wie **erstellt von … mit der Musik …**, auch wenn der umgebende Container weder Link noch Kachel-Kennung besitzt. Der Bildklick kann zum Container weitergereicht werden. Hat das Bild kein eigenes Layoutmaß, wird ein sichtbarer Elterncontainer verwendet. Diese Erkennung ist auf Profilseiten im Gespeichert-Modus begrenzt; Avatare ohne Beitragsbeschreibung, versteckte Bilder und fremde Bildquellen werden ausgeschlossen. Bereits geöffnete Vorschaubilder werden unabhängig von wechselnden URL-Signaturen wiedererkannt.
 
 ### Version 1.6.1
 

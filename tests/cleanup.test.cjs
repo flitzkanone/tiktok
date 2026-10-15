@@ -45,7 +45,12 @@ class Element {
     }
     return null;
   }
-  click() { this.clicks++; if (this.onclick) this.onclick(); }
+  click() {
+    this.clicks++;
+    for (let node = this; node; node = node.parentElement) {
+      if (node.onclick) node.onclick({ target: this, currentTarget: node });
+    }
+  }
   querySelector(selector) { return this.querySelectorAll(selector)[0] || null; }
   dispatchEvent(event) { if (this.onEvent) this.onEvent(event); }
 }
@@ -88,7 +93,7 @@ function setup(mode) {
   };
   const source = fs.readFileSync(path.join(__dirname, '../tiktok-entliken.user.js'), 'utf8')
     .replace('    try {\n      // Gespeicherte', `    globalThis.session = {
-      removeSelected, getRepostState, openCollectionPost, collectionEntry, collectionPanel, config,
+      removeSelected, getRepostState, openCollectionPost, collectionEntry, collectionPanel, previewKey, config,
       setPost: post => { context = () => post; },
       active: live
     };

@@ -16,9 +16,17 @@ class Element {
     this.isConnected = true;
     this.disabled = false;
     this.clicks = 0;
+    this.events = {};
+    this.captured = new Set();
   }
   appendChild(child) { child.parentElement = this; this.children.push(child); }
   getAttribute(name) { return this.attrs[name] ?? null; }
+  setAttribute(name, value) { this.attrs[name] = String(value); }
+  focus() { this.focused = true; }
+  addEventListener(type, callback) { (this.events[type] ||= []).push(callback); }
+  setPointerCapture(id) { this.captured.add(id); }
+  hasPointerCapture(id) { return this.captured.has(id); }
+  releasePointerCapture(id) { this.captured.delete(id); }
   hasAttribute(name) { return Object.hasOwn(this.attrs, name); }
   getBoundingClientRect() { return { width: 300, height: 400, top: 100, bottom: 500, left: 100, right: 400 }; }
   matches(selector) {
@@ -52,12 +60,18 @@ class Element {
     }
   }
   querySelector(selector) { return this.querySelectorAll(selector)[0] || null; }
-  dispatchEvent(event) { if (this.onEvent) this.onEvent(event); }
+  dispatchEvent(event) {
+    if (this.onEvent) this.onEvent(event);
+    for (const callback of this.events[event.type] || []) callback(event);
+  }
 }
 
-function setup(mode) {
-  const controls = Object.fromEntries(['mode', 'delay', 'start', 'stop', 'status']
+function setup(mode, options = {}) {
+  const controls = Object.fromEntries(['mode', 'delay', 'start', 'stop', 'status',
+    'panel', 'drag', 'launcher', 'hide', 'reset-position', 'status-card', 'run-label']
     .map(id => [id, new Element()]));
+  controls.panel.offsetWidth = 340;
+  controls.panel.offsetHeight = 430;
   controls.mode.value = mode;
   controls.delay.value = '3';
   const document = new Element();
@@ -79,10 +93,18 @@ function setup(mode) {
   };
   document.getElementById = id => document.querySelector('[id="' + id + '"]');
   let clock = 0;
-  const window = {};
+  const window = new Element();
   window.top = window;
   window.self = window;
+  const storage = options.storage || new Map();
+  const localStorage = options.blockStorage ? {
+    getItem() { throw new Error('blocked'); }, setItem() { throw new Error('blocked'); }
+  } : {
+    getItem: key => storage.get(key) || null,
+    setItem: (key, value) => storage.set(key, value)
+  };
   const sandbox = {
+    localStorage,
     document, window, innerHeight: 900, innerWidth: 1200,
     location: { href: 'https://www.tiktok.com/@test/video/1', pathname: '/@test/video/1', origin: 'https://www.tiktok.com' },
     URL, Date: { now: () => clock },
@@ -118,7 +140,7 @@ function setup(mode) {
   const post = { root, ...like, key: 'post-1' };
 
   return {
-    controls, root, document, sandbox, like, saved, post,
+    controls, root, document, sandbox, like, saved, post, storage,
     async start() {
       await controls.start.onclick();
       assert.ok(sandbox.session, 'Test-Einstieg wurde geladen');
@@ -343,4 +365,88 @@ test('Beiträge unterhalb des sichtbaren Bereichs können angescrollt werden', a
   grid.appendChild(link);
   env.document.body.appendChild(grid);
   assert.equal(session.collectionEntry(session.config, tab, new Set()), link);
+});
+
+function pointer(target, type, x, y, pointerId = 1) {
+  target.dispatchEvent({ type, button: 0, pointerId, clientX: x, clientY: y, preventDefault() {} });
+}
+
+test('UI: ausblenden und oben wieder öffnen ohne eine Aktion auszuführen', () => {
+  const env = setup('likes');
+  env.controls.hide.click();
+  assert.equal(env.controls.panel.hidden, true);
+  assert.equal(env.controls.launcher.getAttribute('aria-expanded'), 'false');
+  env.controls.launcher.click();
+  assert.equal(env.controls.panel.hidden, false);
+  assert.equal(env.controls.launcher.getAttribute('aria-expanded'), 'true');
+  assert.equal(env.like.button.clicks, 0);
+});
+
+test('UI: ein ausgeblendeter Vorgang bleibt aktiv und kann per Esc gestoppt werden', async () => {
+  const env = setup('likes');
+  const session = await env.start();
+  env.controls.hide.click();
+  assert.equal(session.active(), true);
+  assert.equal(env.controls.launcher.getAttribute('data-running'), 'true');
+  env.document.dispatchEvent({ type: 'keydown', key: 'Escape' });
+  assert.equal(session.active(), false);
+  assert.equal(env.controls.launcher.getAttribute('data-running'), 'false');
+});
+
+test('UI: Drag wird am Fensterrand begrenzt und gespeichert', () => {
+  const env = setup('likes');
+  pointer(env.controls.drag, 'pointerdown', 850, 100);
+  pointer(env.controls.drag, 'pointermove', -1000, -1000);
+  pointer(env.controls.drag, 'pointerup', -1000, -1000);
+  assert.equal(env.controls.panel.style.left, '12px');
+  assert.equal(env.controls.panel.style.top, '12px');
+  assert.equal(env.controls.drag.hasPointerCapture(1), false);
+  const stored = JSON.parse(env.storage.get('flitzkanone.tiktok-cleanup.ui.v1'));
+  assert.equal(stored.x, 12);
+  assert.equal(stored.y, 12);
+});
+
+test('UI: Position und Ausblendung werden nach erneutem Laden wiederhergestellt', () => {
+  const env = setup('likes');
+  pointer(env.controls.drag, 'pointerdown', 850, 100);
+  pointer(env.controls.drag, 'pointermove', 500, 250);
+  pointer(env.controls.drag, 'pointerup', 500, 250);
+  env.controls.hide.click();
+  const reloaded = setup('likes', { storage: env.storage });
+  assert.equal(reloaded.controls.panel.hidden, true);
+  assert.equal(reloaded.controls.panel.style.left, env.controls.panel.style.left);
+  assert.equal(reloaded.controls.panel.style.top, env.controls.panel.style.top);
+  assert.equal(reloaded.like.button.clicks, 0);
+});
+
+test('UI: kleineres Fenster hält das geöffnete Panel erreichbar', () => {
+  const env = setup('likes');
+  env.sandbox.innerWidth = 390;
+  env.sandbox.innerHeight = 500;
+  env.sandbox.window.dispatchEvent({ type: 'resize' });
+  assert.ok(parseFloat(env.controls.panel.style.left) <= 38);
+  assert.ok(parseFloat(env.controls.panel.style.top) <= 58);
+});
+
+test('UI: Tastatur verschiebt und setzt die Position zurück', () => {
+  const env = setup('likes');
+  const initial = parseFloat(env.controls.panel.style.left);
+  env.controls.drag.dispatchEvent({ type: 'keydown', key: 'ArrowLeft', preventDefault() {} });
+  assert.equal(parseFloat(env.controls.panel.style.left), initial - 10);
+  env.controls.drag.dispatchEvent({ type: 'keydown', key: 'Home', preventDefault() {} });
+  assert.equal(parseFloat(env.controls.panel.style.left), initial);
+});
+
+test('UI: Alt+Shift+K öffnet ein ausgeblendetes Panel', () => {
+  const env = setup('likes');
+  env.controls.hide.click();
+  env.document.dispatchEvent({ type: 'keydown', code: 'KeyK', altKey: true, shiftKey: true, preventDefault() {} });
+  assert.equal(env.controls.panel.hidden, false);
+});
+
+test('UI: blockierter lokaler Speicher verhindert die Bedienung nicht', () => {
+  const env = setup('likes', { blockStorage: true });
+  env.controls.hide.click();
+  env.controls.launcher.click();
+  assert.equal(env.controls.panel.hidden, false);
 });

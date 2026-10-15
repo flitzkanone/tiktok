@@ -51,7 +51,15 @@ Ein bloßer **Repost**-Knopf ohne aktiven Zustand wird nicht angeklickt. Nach de
 
 ## Prüfung
 
-JavaScript-Syntax und 25 Verhaltenstests mit einem nachgebauten DOM wurden geprüft. Die Tests decken getrennte Modi, Speicherzustände, Repost-Entfernung, das Vermeiden neuer Reposts, Stopp, die Navigation zu allen drei Profil-Tabs sowie verschiedene gespeicherte Beitragslisten ab.
+JavaScript-Syntax und 27 Verhaltenstests mit einem nachgebauten DOM wurden geprüft. Die Tests decken getrennte Modi, Speicherzustände, Repost-Entfernung, das Vermeiden neuer Reposts, Stopp, die Navigation zu allen drei Profil-Tabs sowie verschiedene gespeicherte Beitragslisten ab.
+
+### Version 1.7.0
+
+Neues dunkles Bedienfeld mit TikTok-Farben, klaren Aktionsfeldern und Laufstatus. An der Kopfzeile ziehen, um das Menü zu verschieben. Die Minus-Schaltfläche blendet es aus; **Aufräumen** oben rechts öffnet es wieder. Ein aktiver Vorgang läuft beim Ausblenden weiter und wird durch den türkisen Punkt am oberen Knopf angezeigt. **Stopp** oder **Esc** beendet ihn.
+
+Position und Sichtbarkeit bleiben nach dem Neuladen erhalten, sofern der Browser lokalen Speicher zulässt. **Alt+Shift+K** schaltet das Menü um. Die Reset-Schaltfläche oder ein Doppelklick auf die Kopfzeile setzt die Position zurück. Bei fokussierter Kopfzeile verschieben Pfeiltasten das Menü; mit Shift in größeren Schritten. **Pos1** setzt es zurück. Ein laufender Auftrag wird nach dem Neuladen nicht automatisch fortgesetzt.
+
+Die Tests prüfen zusätzlich Verschieben, Bildschirmgrenzen, Ausblenden während eines Durchlaufs, Wiederöffnen, Tastaturbedienung und gespeicherte UI-Einstellungen.
 
 ### Version 1.6.2
 

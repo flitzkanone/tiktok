@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TikTok Likes, Gespeicherte und Reposts entfernen - by flitzkanone
 // @namespace    local.tiktok.controls
-// @version      1.6.2
+// @version      1.7.0
 // @description  Likes, gespeicherte Beiträge oder eigene Reposts entfernen und zum nächsten Beitrag wechseln.
 // @match        https://www.tiktok.com/*
 // @grant        none
@@ -35,72 +35,273 @@
   };
 
   const host = document.createElement('div');
-  host.style.cssText =
-    'position:fixed;top:90px;left:16px;z-index:2147483647';
-
+  host.id = 'tt-cleanup-root';
+  host.style.cssText = 'position:fixed;inset:0;z-index:2147483647;pointer-events:none';
   const ui = host.attachShadow({ mode: 'open' });
+
+  const icon = (paths, size = 18) => '<svg width="' + size + '" height="' + size +
+    '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" ' +
+    'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + paths + '</svg>';
+  const spark = icon('<path d="m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5Z"/>');
+  const grip = icon('<circle cx="9" cy="5" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="19" r="1"/>', 16);
 
   ui.innerHTML = `
     <style>
-      section {
-        font:14px system-ui;
-        background:#171717;
-        color:white;
-        padding:14px;
-        border:1px solid #555;
-        border-radius:12px;
-        width:250px;
-        box-shadow:0 4px 20px #0008;
+      :host {color-scheme:dark;font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#f5f5f7}
+      *,*::before,*::after {box-sizing:border-box}
+      [hidden] {display:none!important}
+      button,input,select {font:inherit}
+      button {cursor:pointer}
+      button:focus-visible,input:focus-visible,select:focus-visible {
+        outline:2px solid #25f4ee;outline-offset:3px
       }
-      label {
-        display:block;
-        margin:12px 0;
+      button:disabled,select:disabled,input:disabled {opacity:.45;cursor:not-allowed}
+      svg {flex-shrink:0}
+      #launcher {
+        pointer-events:auto;position:fixed;top:14px;right:24px;height:38px;
+        display:flex;align-items:center;gap:9px;padding:0 14px;border-radius:12px;
+        border:1px solid #ffffff24;background:#19191ded;color:#f5f5f7;
+        box-shadow:0 4px 18px #0003;backdrop-filter:blur(16px);
+        font-size:13px;font-weight:650;transition:background .15s,border-color .15s
       }
-      input {
-        width:55px;
+      #launcher:hover {background:#28282e;border-color:#ffffff45}
+      #launcher>.launch-icon {color:#25f4ee;display:flex}
+      #launcher[aria-expanded="true"] {border-color:#fe2c5566}
+      .dot {width:6px;height:6px;border-radius:50%;background:#777782;flex-shrink:0}
+      #launcher[data-running="true"] .dot,.status-card[data-running="true"] .dot {
+        background:#25f4ee;box-shadow:0 0 0 4px #25f4ee12
       }
-      button,input,select {
-        font:inherit;
-        padding:6px;
-        border-radius:6px;
+      #panel {
+        pointer-events:auto;position:fixed;left:24px;top:84px;
+        width:min(340px,calc(100vw - 24px));max-height:calc(100dvh - 24px);
+        overflow:auto;overscroll-behavior:contain;
+        border:1px solid #ffffff1c;border-radius:20px;background:#161619;
+        box-shadow:0 24px 70px #0007,0 4px 16px #0004;
+        scrollbar-width:thin;scrollbar-color:#44444c transparent
       }
-      button {
-        cursor:pointer;
+      #panel::before {
+        content:"";display:block;height:3px;
+        background:linear-gradient(90deg,#25f4ee,#25f4ee 20%,#fe2c55 85%);
       }
-      p {
-        font-size:12px;
-        overflow-wrap:anywhere;
+      .topbar {display:flex;align-items:center;gap:4px;padding:15px 14px 12px}
+      #drag {
+        display:flex;align-items:center;gap:9px;flex:1;min-width:0;
+        padding:4px 2px;background:none;border:0;color:inherit;
+        text-align:left;cursor:grab;touch-action:none;user-select:none
       }
+      #drag>.grip {color:#666671;display:flex}
+      #panel[data-dragging="true"] #drag {cursor:grabbing}
+      .eyebrow {display:block;color:#8b8b97;font-size:10px;font-weight:700;letter-spacing:1.5px}
+      .title {display:block;font-size:19px;line-height:1.35;font-weight:750;letter-spacing:-.5px}
+      .icon-button {
+        display:grid;place-items:center;width:30px;height:30px;padding:0;flex-shrink:0;
+        background:none;color:#92929d;border:0;border-radius:8px
+      }
+      .icon-button:hover {background:#ffffff0d;color:#fff}
+      .body {padding:4px 20px 18px}
+      .intro {margin:0 0 20px;color:#9696a2;font-size:12px;line-height:1.6}
+      label {display:block;margin-bottom:8px;color:#e1e1e7;font-size:12px;font-weight:650}
+      .select-wrap {position:relative}
+      .select-wrap>svg {position:absolute;right:13px;top:16px;pointer-events:none;color:#8d8d99}
+      select {
+        appearance:none;display:block;width:100%;height:46px;padding:0 36px 0 13px;
+        border:1px solid #ffffff19;border-radius:11px;background:#222227;color:#f4f4f7;
+        font-size:13px;cursor:pointer
+      }
+      option {background:#222227;color:#f4f4f7}
+      .delay-row {display:flex;align-items:center;justify-content:space-between;gap:12px;margin:20px 0}
+      .delay-row label {margin-bottom:2px}
+      .muted {color:#8b8b97;font-size:11px}
+      .number-wrap {
+        display:flex;align-items:center;gap:6px;flex-shrink:0;
+        border:1px solid #ffffff19;border-radius:10px;background:#222227;padding:6px 10px
+      }
+      #delay {width:48px;padding:3px 0;border:0;background:none;color:#fff;font-weight:650;text-align:center}
+      .number-wrap span {font-size:11px;color:#a0a0ad}
+      .status-card {border:1px solid #ffffff0c;background:#ffffff04;border-radius:12px;padding:12px;margin:0 0 18px}
+      .status-heading {display:flex;align-items:center;gap:8px;margin-bottom:6px;color:#acacb8;font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase}
+      #status {margin:0;min-height:36px;color:#dadbe3;font-size:12px;line-height:1.5;overflow-wrap:anywhere}
+      .actions {display:grid;grid-template-columns:1fr 100px;gap:9px}
+      .actions button {display:flex;align-items:center;justify-content:center;gap:8px;height:43px;border-radius:11px;font-size:13px;font-weight:700}
+      #start {background:#fe2c55;color:#fff;border:1px solid transparent}
+      #start:hover:not(:disabled) {background:#ff4168}
+      #stop {background:#242429;color:#ededf2;border:1px solid #ffffff12}
+      #stop:hover {background:#303037}
+      .footer {display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:15px;color:#777782;font-size:10px}
+      kbd {padding:1px 5px;border:1px solid #ffffff1c;border-radius:4px;font:10px inherit;color:#a0a0ad}
+      @media(max-width:480px) {
+        #launcher {right:12px;top:12px}
+        .topbar {padding-top:12px}
+      }
+      @media(prefers-reduced-motion:reduce) {* {transition:none!important}}
     </style>
-    <section>
-      <b>TikTok · Beiträge aufräumen</b>
-      <label>Aktion:
-        <select id="mode">
-          <option value="likes">Likes entfernen</option>
-          <option value="saved">Gespeicherte entfernen</option>
-          <option value="reposts">Reposts zurücknehmen</option>
-        </select>
-      </label>
-      <label>
-        Pause:
-        <input
-          id="delay"
-          type="number"
-          min="3"
-          max="120"
-          value="5"
-        >
-        Sekunden
-      </label>
-      <button id="start">Start</button>
-      <button id="stop">Stopp</button>
-      <p id="status">Bereit.</p>
+    <button id="launcher" type="button" aria-controls="panel" aria-expanded="true"
+      title="Aufräumen ein-/ausblenden · Alt+Shift+K">
+      <span class="launch-icon">` + spark + `</span>
+      <span>Aufräumen</span><span class="dot" aria-hidden="true"></span>
+    </button>
+    <section id="panel" role="region" aria-label="TikTok aufräumen">
+      <div class="topbar">
+        <button id="drag" type="button"
+          aria-label="Menü verschieben: ziehen oder Pfeiltasten verwenden. Pos1 setzt die Position zurück."
+          title="Ziehen zum Verschieben · Doppelklick zum Zurücksetzen">
+          <span class="grip">` + grip + `</span>
+          <span><span class="eyebrow">TIKTOK CLEANUP</span><span class="title">Aufräumen</span></span>
+        </button>
+        <button id="reset-position" class="icon-button" type="button"
+          aria-label="Menüposition zurücksetzen" title="Position zurücksetzen">` +
+          icon('<path d="M3 11a9 9 0 1 1 2.6 7M3 4v7h7"/>', 16) + `</button>
+        <button id="hide" class="icon-button" type="button"
+          aria-label="Menü ausblenden" title="Ausblenden – der Vorgang läuft weiter">` +
+          icon('<path d="M5 12h14"/>', 18) + `</button>
+      </div>
+      <div class="body">
+        <p class="intro">Wähle aus, was du entfernen möchtest.</p>
+        <label for="mode">Aktion</label>
+        <div class="select-wrap">
+          <select id="mode">
+            <option value="likes">Likes entfernen</option>
+            <option value="saved">Gespeicherte entfernen</option>
+            <option value="reposts">Reposts zurücknehmen</option>
+          </select>
+          ` + icon('<path d="m8 10 4 4 4-4"/>', 16) + `
+        </div>
+        <div class="delay-row">
+          <div><label for="delay">Pause zwischen Beiträgen</label><span class="muted">3–120 Sekunden</span></div>
+          <div class="number-wrap"><input id="delay" type="number" min="3" max="120" value="5"><span>Sek.</span></div>
+        </div>
+        <div id="status-card" class="status-card">
+          <div class="status-heading"><span class="dot" aria-hidden="true"></span><span id="run-label">Bereit</span></div>
+          <p id="status" role="status" aria-live="polite" aria-atomic="true">Wähle eine Aktion und drücke Start.</p>
+        </div>
+        <div class="actions">
+          <button id="start" type="button">` + icon('<path d="m9 5 11 7-11 7Z" fill="currentColor" stroke="none"/>', 16) + `Start</button>
+          <button id="stop" type="button">` + icon('<rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" stroke="none"/>', 14) + `Stopp</button>
+        </div>
+        <div class="footer"><span>Ausblenden lässt den Vorgang weiterlaufen.</span><span><kbd>Esc</kbd> stoppt</span></div>
+      </div>
     </section>
   `;
 
   document.body.appendChild(host);
-
   const get = id => ui.getElementById(id);
+
+  // Nur die Darstellung speichern, niemals einen laufenden Auftrag automatisch starten.
+  const uiStorageKey = 'flitzkanone.tiktok-cleanup.ui.v1';
+  let uiState = { x: null, y: null, hidden: false };
+  try {
+    const saved = JSON.parse(localStorage.getItem(uiStorageKey) || 'null');
+    if (saved && typeof saved === 'object') {
+      uiState = {
+        x: Number.isFinite(saved.x) ? saved.x : null,
+        y: Number.isFinite(saved.y) ? saved.y : null,
+        hidden: saved.hidden === true
+      };
+    }
+  } catch { /* Blockierter Speicher verhindert nicht die Bedienung. */ }
+
+  const panel = get('panel');
+  const dragHandle = get('drag');
+  let dragState = null;
+
+  function persistUI() {
+    try { localStorage.setItem(uiStorageKey, JSON.stringify(uiState)); }
+    catch { /* Ohne Speicher bleibt die Position für diesen Seitenaufruf erhalten. */ }
+  }
+
+  function placePanel(reset = false) {
+    const width = panel.offsetWidth || Math.min(340, Math.max(0, innerWidth - 24));
+    const height = panel.offsetHeight || Math.min(430, Math.max(0, innerHeight - 24));
+    const maxX = Math.max(12, innerWidth - width - 12);
+    const maxY = Math.max(12, innerHeight - height - 12);
+    const x = reset || uiState.x === null ? innerWidth - width - 24 : uiState.x;
+    const y = reset || uiState.y === null ? 84 : uiState.y;
+    uiState.x = Math.max(12, Math.min(maxX, x));
+    uiState.y = Math.max(12, Math.min(maxY, y));
+    panel.style.left = uiState.x + 'px';
+    panel.style.top = uiState.y + 'px';
+  }
+
+  function showPanel(open, focus = true) {
+    uiState.hidden = !open;
+    panel.hidden = !open;
+    get('launcher').setAttribute('aria-expanded', String(open));
+    if (open) placePanel();
+    persistUI();
+    if (focus) (open ? dragHandle : get('launcher')).focus({ preventScroll: true });
+  }
+
+  function setRunningUI(active) {
+    get('launcher').setAttribute('data-running', String(active));
+    get('launcher').setAttribute('aria-label', active
+      ? 'Aufräumen – Vorgang läuft. Menü ein- oder ausblenden.'
+      : 'Aufräumen – Menü ein- oder ausblenden.');
+    get('status-card').setAttribute('data-running', String(active));
+    get('run-label').textContent = active ? 'Läuft' : 'Gestoppt';
+  }
+
+  get('launcher').onclick = () => showPanel(panel.hidden);
+  get('hide').onclick = () => showPanel(false);
+  get('reset-position').onclick = () => { placePanel(true); persistUI(); };
+  dragHandle.addEventListener('dblclick', () => { placePanel(true); persistUI(); });
+
+  dragHandle.addEventListener('pointerdown', event => {
+    if (event.button !== 0 || dragState) return;
+    placePanel();
+    dragState = {
+      id: event.pointerId, clientX: event.clientX, clientY: event.clientY,
+      x: uiState.x, y: uiState.y
+    };
+    dragHandle.setPointerCapture(event.pointerId);
+    panel.setAttribute('data-dragging', 'true');
+    event.preventDefault();
+  });
+
+  dragHandle.addEventListener('pointermove', event => {
+    if (!dragState || event.pointerId !== dragState.id) return;
+    uiState.x = dragState.x + event.clientX - dragState.clientX;
+    uiState.y = dragState.y + event.clientY - dragState.clientY;
+    placePanel();
+  });
+
+  function finishDrag(event) {
+    if (!dragState || event.pointerId !== dragState.id) return;
+    const id = dragState.id;
+    dragState = null;
+    panel.setAttribute('data-dragging', 'false');
+    if (dragHandle.hasPointerCapture(id)) dragHandle.releasePointerCapture(id);
+    persistUI();
+  }
+  for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) {
+    dragHandle.addEventListener(type, finishDrag);
+  }
+
+  dragHandle.addEventListener('keydown', event => {
+    const moves = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+    if (event.key === 'Home') {
+      event.preventDefault(); placePanel(true); persistUI(); return;
+    }
+    const move = moves[event.key];
+    if (!move) return;
+    event.preventDefault();
+    const step = event.shiftKey ? 30 : 10;
+    uiState.x += move[0] * step;
+    uiState.y += move[1] * step;
+    placePanel(); persistUI();
+  });
+
+  document.addEventListener('keydown', event => {
+    if (event.altKey && event.shiftKey && event.code === 'KeyK' && !event.repeat) {
+      event.preventDefault();
+      showPanel(panel.hidden);
+    }
+  });
+  window.addEventListener('resize', () => {
+    if (!panel.hidden) placePanel();
+    persistUI();
+  });
+  placePanel();
+  showPanel(!uiState.hidden, false);
   const sleep = ms =>
     new Promise(resolve => setTimeout(resolve, ms));
 
@@ -524,6 +725,7 @@
   function stop(message = 'Gestoppt.') {
     running = false;
     generation++;
+    setRunningUI(false);
 
     get('status').textContent = message;
     get('start').disabled = false;
@@ -555,6 +757,7 @@
     }
 
     running = true;
+    setRunningUI(true);
 
     const token = ++generation;
     const live = () =>

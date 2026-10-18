@@ -51,7 +51,11 @@ Ein bloßer **Repost**-Knopf ohne aktiven Zustand wird nicht angeklickt. Nach de
 
 ## Prüfung
 
-JavaScript-Syntax und 27 Verhaltenstests mit einem nachgebauten DOM wurden geprüft. Die Tests decken getrennte Modi, Speicherzustände, Repost-Entfernung, das Vermeiden neuer Reposts, Stopp, die Navigation zu allen drei Profil-Tabs sowie verschiedene gespeicherte Beitragslisten ab.
+JavaScript-Syntax und 32 Verhaltenstests mit einem nachgebauten DOM wurden geprüft. Die Tests decken getrennte Modi, Speicherzustände, Repost-Entfernung, das Vermeiden neuer Reposts, Stopp, die Navigation zu allen drei Profil-Tabs sowie verschiedene gespeicherte Beitragslisten ab.
+
+### Version 1.7.1
+
+Likes und Speicherungen werden bis zu acht Sekunden auf einen mindestens 1,2 Sekunden stabilen inaktiven Zustand geprüft. Wird der Knopf nach der Beitragspause wieder aktiv angezeigt, wartet das Script erneut auf eine stabile Anzeige, ohne erneut zu klicken. Ein dauerhaft aktiver Zustand beendet den Durchlauf mit einer präziseren Meldung: Die Entfernung konnte nicht sicher bestätigt werden. Das beweist keine serverseitige Rücksetzung. Unbekannte Zustände und Beitragswechsel führen weiterhin zum Abbruch.
 
 ### Version 1.7.0
 

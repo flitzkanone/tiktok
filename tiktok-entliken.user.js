@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TikTok Likes, Gespeicherte und Reposts entfernen - by flitzkanone
 // @namespace    local.tiktok.controls
-// @version      1.7.0
+// @version      1.7.1
 // @description  Likes, gespeicherte Beiträge oder eigene Reposts entfernen und zum nächsten Beitrag wechseln.
 // @match        https://www.tiktok.com/*
 // @grant        none
@@ -979,6 +979,25 @@
       return state;
     }
 
+    async function confirmInactive(key) {
+      const read = mode === 'saved' ? savedState : liked;
+      const deadline = Date.now() + 8000;
+      let inactiveSince = null;
+      while (Date.now() < deadline) {
+        const current = samePost(key);
+        if (read(current)) inactiveSince = null;
+        else {
+          if (inactiveSince === null) inactiveSince = Date.now();
+          if (Date.now() - inactiveSince >= 1200) return;
+        }
+        await sleep(300);
+      }
+      check();
+      throw new Error(config.title + ': Zustand bleibt aktiv oder wechselt. ' +
+        'Entfernung nicht sicher bestätigt. Bitte den Beitrag manuell prüfen; ' +
+        'das Script klickt nicht erneut.');
+    }
+
     async function removeSelected(post) {
       if (mode === 'reposts') {
         const state = await getRepostState(post.key);
@@ -999,11 +1018,7 @@
       if (mode === 'saved') click(savedControl(post).button);
       else post.button.click();
 
-      const confirmed = await waitFor(() => {
-        const current = samePost(post.key);
-        return !read(current) ? current : null;
-      }, 4000);
-      if (!confirmed) throw new Error(config.title + ': Änderung nicht bestätigt.');
+      await confirmInactive(post.key);
       return true;
     }
 
@@ -1029,12 +1044,10 @@
 
         get('status').textContent = config.title + ' …';
         const removed = await removeSelected(post);
-
         seen.add(post.key);
-        if (removed) count++;
 
         get('status').textContent =
-          count + ' entfernt · ' + seen.size + ' geprüft. Warte …';
+          count + ' bestätigt entfernt · Warte auf Abschluss …';
 
         await sleep(delay * 1000);
         check();
@@ -1051,9 +1064,8 @@
         }
 
         if (mode !== 'reposts' && (mode === 'saved' ? savedState(current) : liked(current))) {
-          throw new Error(
-            'TikTok hat die Änderung zurückgesetzt.'
-          );
+          get('status').textContent = 'Zustand hat sich geändert. Prüfe erneut …';
+          await confirmInactive(post.key);
         }
 
         if (mode === 'reposts') {
@@ -1062,6 +1074,7 @@
           dismissShare();
         }
 
+        if (removed) count++;
         next(current);
 
         const changed = await waitFor(() => {

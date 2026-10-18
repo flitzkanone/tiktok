@@ -109,13 +109,13 @@ function setup(mode, options = {}) {
     location: { href: 'https://www.tiktok.com/@test/video/1', pathname: '/@test/video/1', origin: 'https://www.tiktok.com' },
     URL, Date: { now: () => clock },
     getComputedStyle: el => ({ display: el.display || 'block', visibility: 'visible', fill: el.fill || 'none' }),
-    setTimeout: (callback, ms) => { clock += ms; queueMicrotask(callback); },
+    setTimeout: (callback, ms) => { clock += ms; if (options.onSleep) options.onSleep(clock); queueMicrotask(callback); },
     KeyboardEvent: class { constructor(type, data) { this.type = type; Object.assign(this, data); } },
     MouseEvent: class { constructor(type, data) { this.type = type; Object.assign(this, data); } }
   };
   const source = fs.readFileSync(path.join(__dirname, '../tiktok-entliken.user.js'), 'utf8')
     .replace('    try {\n      // Gespeicherte', `    globalThis.session = {
-      removeSelected, getRepostState, openCollectionPost, collectionEntry, collectionPanel, previewKey, config,
+      removeSelected, confirmInactive, getRepostState, openCollectionPost, collectionEntry, collectionPanel, previewKey, config,
       setPost: post => { context = () => post; },
       active: live
     };
@@ -449,4 +449,37 @@ test('UI: blockierter lokaler Speicher verhindert die Bedienung nicht', () => {
   env.controls.hide.click();
   env.controls.launcher.click();
   assert.equal(env.controls.panel.hidden, false);
+});
+
+for (const mode of ['likes', 'saved']) {
+  test(mode + ': verzögerte Anzeige wird ohne zweiten Klick bestätigt', async () => {
+    let button;
+    const env = setup(mode, { onSleep: clock => {
+      if (button) button.attrs['aria-pressed'] = String(clock < 2100);
+    } });
+    button = env[mode === 'likes' ? 'like' : 'saved'].button;
+    button.onclick = () => {};
+    const session = await env.start();
+    assert.equal(await session.removeSelected(env.post), true);
+    assert.equal(button.clicks, 1);
+  });
+  test(mode + ': dauerhafter Rücksprung wird nicht als Erfolg behandelt', async () => {
+    let button;
+    const env = setup(mode, { onSleep: clock => {
+      if (button && clock >= 600) button.attrs['aria-pressed'] = 'true';
+    } });
+    button = env[mode === 'likes' ? 'like' : 'saved'].button;
+    const session = await env.start();
+    await assert.rejects(() => session.removeSelected(env.post), /nicht sicher bestätigt/);
+    assert.equal(button.clicks, 1);
+  });
+}
+
+test('Abschlussprüfung wartet auf stabilen Zustand ohne erneuten Klick', async () => {
+  const env = setup('likes', { onSleep: clock => {
+    if (clock >= 1800) env.like.button.attrs['aria-pressed'] = 'false';
+  } });
+  const session = await env.start();
+  await session.confirmInactive(env.post.key);
+  assert.equal(env.like.button.clicks, 0);
 });

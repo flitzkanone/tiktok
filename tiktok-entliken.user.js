@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TikTok Likes, Gespeicherte und Reposts entfernen - by flitzkanone
 // @namespace    local.tiktok.controls
-// @version      1.7.1
+// @version      1.7.2
 // @description  Likes, gespeicherte Beiträge oder eigene Reposts entfernen und zum nächsten Beitrag wechseln.
 // @match        https://www.tiktok.com/*
 // @grant        none
@@ -12,6 +12,9 @@
   'use strict';
 
   if (window.top !== window.self) return;
+  // Mehrfach installierte Kopien dürfen keinen zweiten Durchlauf erzeugen.
+  if (document.getElementById('tt-cleanup-root')) return;
+  const attemptedLikes = new Set();
 
   const modes = {
     likes: {
@@ -624,62 +627,34 @@
   }
 
   function liked(post) {
-    const pressed =
-      post.button.getAttribute('aria-pressed') ??
-      post.icon.getAttribute('aria-pressed');
-
-    if (pressed === 'true') return true;
-    if (pressed === 'false') return false;
-
-    const text =
-      post.button.getAttribute('aria-label') ||
-      post.icon.getAttribute('aria-label') || '';
-
-    if (
-      /unlike|remove like|dislike|gefällt mir nicht|like entfernen/i
-        .test(text)
-    ) {
-      return true;
+    const signals = [];
+    for (const control of new Set([post.button, post.icon])) {
+      const pressed = control.getAttribute('aria-pressed');
+      if (pressed === 'true') signals.push(true);
+      if (pressed === 'false') signals.push(false);
+      for (const attr of ['aria-label', 'title']) {
+        const text = (control.getAttribute(attr) || '').trim();
+        if (/^(unlike|remove like|dislike|gefällt mir nicht|like entfernen)(?:$|[\s:,.])/i.test(text)) {
+          signals.push(true);
+        } else if (/^(like|gefällt mir)(?:$|[\s:,.])/i.test(text)) {
+          signals.push(false);
+        }
+      }
     }
-
-    if (/^(like|gefällt mir)(\b|$)/i.test(text)) {
-      return false;
-    }
-
-    let inactive = false;
-
-    for (
-      const shape of post.icon.querySelectorAll('svg,svg path')
-    ) {
+    for (const shape of post.icon.querySelectorAll('svg,svg path')) {
       const match = getComputedStyle(shape).fill.match(
-        /^rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)/
+        /^rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)(?:\s*[,/]\s*([\d.]+))?\s*\)/
       );
-
-      if (!match) continue;
-
-      const r = Number(match[1]);
-      const g = Number(match[2]);
-      const b = Number(match[3]);
-
-      if (
-        r >= 240 &&
-        g < 100 &&
-        b >= 60 &&
-        b < 130
-      ) {
-        return true;
-      }
-
-      if (
-        (r === 255 && g === 255 && b === 255) ||
-        (r === 22 && g === 24 && b === 35)
-      ) {
-        inactive = true;
-      }
+      if (!match || (match[4] !== undefined && Number(match[4]) < .9)) continue;
+      const [r, g, b] = match.slice(1, 4).map(Number);
+      if (r >= 240 && g < 100 && b >= 60 && b < 130) signals.push(true);
+      if ((r === 255 && g === 255 && b === 255) ||
+          (r === 22 && g === 24 && b === 35)) signals.push(false);
     }
-
-    if (inactive) return false;
-
+    if (signals.includes(true) && signals.includes(false)) {
+      throw new Error('Like-Zustand widersprüchlich. Kein weiterer Klick; bitte Beitrag prüfen.');
+    }
+    if (signals.length) return signals[0];
     throw new Error('Like-Zustand nicht erkannt.');
   }
 
@@ -1016,7 +991,25 @@
       const read = mode === 'saved' ? savedState : liked;
       if (!read(post)) return false;
       if (mode === 'saved') click(savedControl(post).button);
-      else post.button.click();
+      else {
+        if (attemptedLikes.has(post.key)) {
+          throw new Error('Dieser Like wurde bereits angeklickt. Kein erneuter Klick; bitte Beitrag prüfen.');
+        }
+        // Zustand unmittelbar vor dem Klick erneut prüfen. Ein Übergang darf
+        // niemals versehentlich zum Setzen eines neuen Likes führen.
+        for (let sample = 0; sample < 3; sample++) {
+          await sleep(250);
+          const current = samePost(post.key);
+          if (!liked(current)) return false;
+        }
+        const current = samePost(post.key);
+        if (!liked(current)) return false;
+        if (attemptedLikes.has(current.key)) {
+          throw new Error('Dieser Like wurde bereits angeklickt. Kein erneuter Klick.');
+        }
+        attemptedLikes.add(current.key);
+        current.button.click();
+      }
 
       await confirmInactive(post.key);
       return true;

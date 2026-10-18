@@ -20,7 +20,7 @@ class Element {
     this.captured = new Set();
   }
   appendChild(child) { child.parentElement = this; this.children.push(child); }
-  getAttribute(name) { return this.attrs[name] ?? null; }
+  getAttribute(name) { return this.attrs[name] ?? (name === 'id' ? this.id : null) ?? null; }
   setAttribute(name, value) { this.attrs[name] = String(value); }
   focus() { this.focused = true; }
   addEventListener(type, callback) { (this.events[type] ||= []).push(callback); }
@@ -115,7 +115,7 @@ function setup(mode, options = {}) {
   };
   const source = fs.readFileSync(path.join(__dirname, '../tiktok-entliken.user.js'), 'utf8')
     .replace('    try {\n      // Gespeicherte', `    globalThis.session = {
-      removeSelected, confirmInactive, getRepostState, openCollectionPost, collectionEntry, collectionPanel, previewKey, config,
+      liked, removeSelected, confirmInactive, getRepostState, openCollectionPost, collectionEntry, collectionPanel, previewKey, config,
       setPost: post => { context = () => post; },
       active: live
     };
@@ -141,6 +141,7 @@ function setup(mode, options = {}) {
 
   return {
     controls, root, document, sandbox, like, saved, post, storage,
+    reload: () => vm.runInNewContext(source, sandbox),
     async start() {
       await controls.start.onclick();
       assert.ok(sandbox.session, 'Test-Einstieg wurde geladen');
@@ -482,4 +483,50 @@ test('Abschlussprüfung wartet auf stabilen Zustand ohne erneuten Klick', async 
   const session = await env.start();
   await session.confirmInactive(env.post.key);
   assert.equal(env.like.button.clicks, 0);
+});
+
+test('Like: weißes Herz mit veraltetem aktivem Attribut wird niemals geklickt', async () => {
+  const env = setup('likes');
+  const shape = new Element('svg');
+  shape.fill = 'rgb(255, 255, 255)';
+  env.like.icon.appendChild(shape);
+  const session = await env.start();
+  await assert.rejects(() => session.removeSelected(env.post), /widersprüchlich/);
+  assert.equal(env.like.button.clicks, 0);
+});
+
+test('Like: Wechsel zu inaktiv vor dem Klick setzt keinen neuen Like', async () => {
+  const env = setup('likes', { onSleep: () => {
+    env.like.button.attrs['aria-pressed'] = 'false';
+  } });
+  const session = await env.start();
+  assert.equal(await session.removeSelected(env.post), false);
+  assert.equal(env.like.button.clicks, 0);
+});
+
+test('Like: nach erneut aktivem Zustand auch bei Neustart kein zweiter Klick', async () => {
+  const env = setup('likes');
+  let session = await env.start();
+  assert.equal(await session.removeSelected(env.post), true);
+  env.like.button.attrs['aria-pressed'] = 'true';
+  env.controls.stop.click();
+  session = await env.start();
+  await assert.rejects(() => session.removeSelected(env.post), /bereits angeklickt/);
+  assert.equal(env.like.button.clicks, 1);
+});
+
+test('Like: widersprüchliche Beschriftung und Attribut stoppen ohne Klick', async () => {
+  const env = setup('likes');
+  env.like.button.attrs['aria-label'] = 'Like';
+  const session = await env.start();
+  await assert.rejects(() => session.removeSelected(env.post), /widersprüchlich/);
+  assert.equal(env.like.button.clicks, 0);
+});
+
+test('Zweite Script-Kopie erzeugt weder ein zweites Menü noch neue Listener', () => {
+  const env = setup('likes');
+  const start = env.controls.start.onclick;
+  env.reload();
+  assert.equal(env.document.querySelectorAll('[id="tt-cleanup-root"]').length, 1);
+  assert.equal(env.controls.start.onclick, start);
 });

@@ -51,7 +51,13 @@ Ein bloßer **Repost**-Knopf ohne aktiven Zustand wird nicht angeklickt. Nach de
 
 ## Prüfung
 
-JavaScript-Syntax und 32 Verhaltenstests mit einem nachgebauten DOM wurden geprüft. Die Tests decken getrennte Modi, Speicherzustände, Repost-Entfernung, das Vermeiden neuer Reposts, Stopp, die Navigation zu allen drei Profil-Tabs sowie verschiedene gespeicherte Beitragslisten ab.
+JavaScript-Syntax und 37 Verhaltenstests mit einem nachgebauten DOM wurden geprüft. Die Tests decken getrennte Modi, Speicherzustände, Repost-Entfernung, das Vermeiden neuer Reposts, Stopp, die Navigation zu allen drei Profil-Tabs sowie verschiedene gespeicherte Beitragslisten ab.
+
+### Version 1.7.2
+
+Die Like-Erkennung gleicht Zustandsattribute, Beschriftungen und bekannte Herzfarben miteinander ab. Widersprüchliche Angaben stoppen den Durchlauf ohne Klick. Vor dem Entliken wird der aktuelle Beitrag über mehrere Messungen erneut geprüft. Jeder Beitrag darf pro Seitenaufruf höchstens einen Like-Klick erhalten, auch nach Stopp und erneutem Start. Ein bereits vorhandenes Script-Menü verhindert, dass eine zweite Kopie dieser Version startet. Ältere parallel installierte Versionen sollten deaktiviert werden, da sie diese Sperre nicht kennen.
+
+Zusätzliche Tests prüfen veraltete Zustandsattribute, Zustandswechsel vor dem Klick, erneute Durchläufe und doppelte Script-Ausführung. Ein Live-Test des gemeldeten TikTok-Layouts steht weiterhin aus.
 
 ### Version 1.7.1
 

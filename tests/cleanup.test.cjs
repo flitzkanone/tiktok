@@ -517,7 +517,8 @@ test('Like: nach erneut aktivem Zustand auch bei Neustart kein zweiter Klick', a
 
 test('Like: widersprüchliche Beschriftung und Attribut stoppen ohne Klick', async () => {
   const env = setup('likes');
-  env.like.button.attrs['aria-label'] = 'Like';
+  env.like.button.attrs['aria-label'] = 'Unlike';
+  env.like.button.attrs['aria-pressed'] = 'false';
   const session = await env.start();
   await assert.rejects(() => session.removeSelected(env.post), /widersprüchlich/);
   assert.equal(env.like.button.clicks, 0);
@@ -529,4 +530,30 @@ test('Zweite Script-Kopie erzeugt weder ein zweites Menü noch neue Listener', (
   env.reload();
   assert.equal(env.document.querySelectorAll('[id="tt-cleanup-root"]').length, 1);
   assert.equal(env.controls.start.onclick, start);
+});
+
+test('Rotes Herz im dunklen SVG und generisches Like-Label ergeben genau einen Entfernen-Klick', async () => {
+  const env = setup('likes');
+  delete env.like.button.attrs['aria-pressed'];
+  env.like.button.attrs['aria-label'] = 'Like';
+  const svg = new Element('svg');
+  svg.fill = 'rgb(22, 24, 35)';
+  const heart = new Element('path');
+  heart.fill = 'rgb(254, 44, 85)';
+  svg.appendChild(heart);
+  env.like.icon.appendChild(svg);
+  env.like.button.onclick = () => { heart.fill = 'rgb(255, 255, 255)'; };
+  const session = await env.start();
+  assert.equal(await session.removeSelected(env.post), true);
+  assert.equal(env.like.button.clicks, 1);
+  assert.equal(await session.removeSelected(env.post), false);
+  assert.equal(env.like.button.clicks, 1);
+});
+
+test('Generisches Like-Label ersetzt keinen ausdrücklichen aktiven Zustand', async () => {
+  const env = setup('likes');
+  env.like.button.attrs['aria-label'] = 'Like';
+  const session = await env.start();
+  assert.equal(await session.removeSelected(env.post), true);
+  assert.equal(env.like.button.clicks, 1);
 });

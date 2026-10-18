@@ -51,7 +51,11 @@ Ein bloßer **Repost**-Knopf ohne aktiven Zustand wird nicht angeklickt. Nach de
 
 ## Prüfung
 
-JavaScript-Syntax und 37 Verhaltenstests mit einem nachgebauten DOM wurden geprüft. Die Tests decken getrennte Modi, Speicherzustände, Repost-Entfernung, das Vermeiden neuer Reposts, Stopp, die Navigation zu allen drei Profil-Tabs sowie verschiedene gespeicherte Beitragslisten ab.
+JavaScript-Syntax und 39 Verhaltenstests mit einem nachgebauten DOM wurden geprüft. Die Tests decken getrennte Modi, Speicherzustände, Repost-Entfernung, das Vermeiden neuer Reposts, Stopp, die Navigation zu allen drei Profil-Tabs sowie verschiedene gespeicherte Beitragslisten ab.
+
+### Version 1.7.3
+
+Die Like-Prüfung wertet vorhandene Herzpfade statt zusätzlich der SVG-Containerfarbe aus. Ein allgemeines „Like“/„Gefällt mir“-Label dient nur als Ersatz, wenn keine eindeutigen Zustandsattribute oder bekannten Herzfarben vorhanden sind. Dadurch erzeugen ein rotes Herz und eine unveränderte allgemeine Beschriftung keinen falschen Widerspruch. Echte Konflikte mit `aria-pressed` oder einer ausdrücklichen Entfernen-Beschriftung stoppen weiterhin ohne weiteren Klick. Zwei Regressionstests decken diese Fälle ab.
 
 ### Version 1.7.2
 

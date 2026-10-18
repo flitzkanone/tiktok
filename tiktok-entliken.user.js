@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TikTok Likes, Gespeicherte und Reposts entfernen - by flitzkanone
 // @namespace    local.tiktok.controls
-// @version      1.7.2
+// @version      1.7.3
 // @description  Likes, gespeicherte Beiträge oder eigene Reposts entfernen und zum nächsten Beitrag wechseln.
 // @match        https://www.tiktok.com/*
 // @grant        none
@@ -628,6 +628,7 @@
 
   function liked(post) {
     const signals = [];
+    let genericLikeLabel = false;
     for (const control of new Set([post.button, post.icon])) {
       const pressed = control.getAttribute('aria-pressed');
       if (pressed === 'true') signals.push(true);
@@ -637,11 +638,14 @@
         if (/^(unlike|remove like|dislike|gefällt mir nicht|like entfernen)(?:$|[\s:,.])/i.test(text)) {
           signals.push(true);
         } else if (/^(like|gefällt mir)(?:$|[\s:,.])/i.test(text)) {
-          signals.push(false);
+          genericLikeLabel = true;
         }
       }
     }
-    for (const shape of post.icon.querySelectorAll('svg,svg path')) {
+    const paths = [...post.icon.querySelectorAll('svg path')];
+    // SVG-Container können eine andere Grundfarbe als der sichtbare Herzpfad haben.
+    const shapes = paths.length ? paths : [...post.icon.querySelectorAll('svg')];
+    for (const shape of shapes) {
       const match = getComputedStyle(shape).fill.match(
         /^rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)(?:\s*[,/]\s*([\d.]+))?\s*\)/
       );
@@ -655,6 +659,7 @@
       throw new Error('Like-Zustand widersprüchlich. Kein weiterer Klick; bitte Beitrag prüfen.');
     }
     if (signals.length) return signals[0];
+    if (genericLikeLabel) return false;
     throw new Error('Like-Zustand nicht erkannt.');
   }
 
